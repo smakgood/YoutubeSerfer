@@ -58,6 +58,22 @@ function enqueueStorage(task) {
     };
   }
 
+  function normalizeQueries(raw) {
+    const source = Array.isArray(raw) ? raw : [];
+    const seen = new Set();
+    const result = [];
+    for (const item of source) {
+      const text = String(item ?? '').trim().slice(0, 200);
+      if (!text) continue;
+      const key = text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(text);
+      if (result.length >= 30) break;
+    }
+    return result;
+  }
+
   function chance(percent) {
     return Math.random() * 100 < percent;
   }
@@ -71,13 +87,13 @@ function enqueueStorage(task) {
     if (controller) return;
     const gen = ++generation;
     const active = new AbortController();
-    let localStop = false;
+    const halt = { localStop: false, status: '' };
     controller = active;
     controller.requestStop = () => {
-      localStop = true;
+      halt.localStop = true;
     };
 
-    run(active.signal, options, gen).catch((error) => {
+    run(active.signal, options, gen, halt).catch((error) => {
       if (generation !== gen) return;
       if (error?.name === 'AbortError') return;
       options.ui.log(error?.message || 'Сбой серфинга');
@@ -85,8 +101,12 @@ function enqueueStorage(task) {
       if (controller === active) controller = null;
       if (generation !== gen) return;
       options.ui.setRunning(false);
-      if (!localStop) return;
+      if (!halt.localStop) return;
       await YS.session.set({ running: false });
+      if (halt.status) {
+        options.ui.setStatus(halt.status);
+        return;
+      }
       options.ui.setStatus('Остановлено');
       options.ui.log('Остановлено');
     }));
@@ -104,12 +124,33 @@ function enqueueStorage(task) {
     return Boolean(controller);
   }
 
-  async function run(signal, options, gen) {
+  async function run(signal, options, gen, halt) {
     const ui = options.ui;
-    const query = options.query.trim();
     const seen = new Set(Array.isArray(options.seenIds) ? options.seenIds : []);
+    let query = '';
     let searchUrl = typeof options.searchUrl === 'string' ? options.searchUrl : '';
     let emptyPasses = 0;
+
+    function readQueries() {
+      return normalizeQueries(options.getQueries?.() ?? options.queries);
+    }
+
+    function pickQuery(avoid) {
+      const list = readQueries();
+      if (!list.length) return '';
+      const avoidKey = String(avoid || '').trim().toLowerCase();
+      const others = avoidKey
+        ? list.filter((item) => item.toLowerCase() !== avoidKey)
+        : list;
+      const pool = others.length ? others : list;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    function stopForEmptyQueries() {
+      halt.status = 'Добавьте запрос';
+      halt.localStop = true;
+      throw YS.dom.abortError();
+    }
 
     const settingsNow = () => normalizeSettings(options.getSettings?.());
 
@@ -117,15 +158,17 @@ function enqueueStorage(task) {
       return enqueueStorage(async () => {
         if (generation !== gen || signal.aborted) return;
         const settings = settingsNow();
+        const queries = readQueries();
         await YS.session.set({
           running: true,
           owner: tabToken,
           query,
+          queries,
           settings,
           seenIds: [...seen].slice(-300),
           searchUrl,
         });
-        await chrome.storage.local.set({ query, settings });
+        await chrome.storage.local.set({ query, queries, settings });
       });
     }
 
@@ -299,7 +342,21 @@ function enqueueStorage(task) {
       await persist();
     }
 
+    function adoptQuery(next) {
+      if (!next) stopForEmptyQueries();
+      if (next.toLowerCase() === query.toLowerCase()) return;
+      query = next;
+      searchUrl = '';
+      emptyPasses = 0;
+      ui.log('Запрос: «' + query + '»');
+    }
+
     async function cycle() {
+      const list = readQueries();
+      if (!list.length) stopForEmptyQueries();
+      const currentKept = list.some((item) => item.toLowerCase() === query.toLowerCase());
+      if (!currentKept) adoptQuery(pickQuery(''));
+
       ui.setStatus('Ищу видео');
       await ensureResults();
       rememberSearchUrl();
@@ -330,7 +387,18 @@ function enqueueStorage(task) {
       await followRecommendations();
       await returnToResults();
       await YS.dom.sleep(YS.dom.pauseMs(), signal);
+      adoptQuery(pickQuery(query));
     }
+
+    const savedQueries = readQueries();
+    if (!savedQueries.length) {
+      ui.setStatus('Добавьте запрос');
+      return;
+    }
+    const preferred = String(options.query || '').trim().toLowerCase();
+    const matched = savedQueries.find((item) => item.toLowerCase() === preferred);
+    query = matched || savedQueries[Math.floor(Math.random() * savedQueries.length)];
+    if (preferred && !matched) searchUrl = '';
 
     ui.setRunning(true);
     ui.setStatus(options.resume ? 'Продолжаю серфинг' : 'Запускаю');
@@ -343,6 +411,7 @@ function enqueueStorage(task) {
         await watchCurrent();
         await followRecommendations();
         await returnToResults();
+        adoptQuery(pickQuery(query));
       } catch (error) {
         if (error.name === 'AbortError') throw error;
         ui.log(error.message || 'Не удалось продолжить просмотр');
@@ -367,5 +436,6 @@ function enqueueStorage(task) {
     stop,
     isRunning,
     normalizeSettings,
+    normalizeQueries,
   };
 })(globalThis.YS = globalThis.YS || {});

@@ -107,6 +107,88 @@
   color: #b0b0b0;
 }
 
+#ys-root .ys-query-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#ys-root .ys-query-row .ys-query {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+
+#ys-root .ys-add,
+#ys-root .ys-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  background: #121212;
+  color: #f1f1f1;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#ys-root .ys-add:hover,
+#ys-root .ys-chip-remove:hover {
+  background: #333;
+}
+
+#ys-root .ys-queries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#ys-root .ys-queries:empty {
+  display: none;
+}
+
+#ys-root .ys-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px 0 10px;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  background: #121212;
+}
+
+#ys-root .ys-chip-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#ys-root .ys-chip-remove {
+  flex-basis: 28px;
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0;
+}
+
+#ys-root .ys-chip:hover .ys-chip-remove,
+#ys-root .ys-chip:focus-within .ys-chip-remove {
+  opacity: 1;
+}
+
 #ys-root .ys-actions {
   display: flex;
   gap: 8px;

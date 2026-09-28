@@ -13,7 +13,8 @@
 
   function create() {
     const state = {
-      query: '',
+      draft: '',
+      queries: [],
       settings: { ...DEFAULTS },
       status: 'Ожидание',
       log: [],
@@ -22,10 +23,13 @@
     };
     let onStart = () => {};
     let onStop = () => {};
-    let onQuery = () => {};
+    let onQueries = () => {};
     let onSettings = () => {};
     let root = null;
     let queryInput = null;
+    let addBtn = null;
+    let queriesEl = null;
+    let queriesStamp = '';
     let startBtn = null;
     let stopBtn = null;
     let statusEl = null;
@@ -33,6 +37,7 @@
     const inputs = {};
 
     function mount() {
+      queriesStamp = '';
       root?.remove();
       for (const stale of document.querySelectorAll('[id="ys-root"]')) stale.remove();
       root = document.createElement('section');
@@ -58,9 +63,11 @@
       close.textContent = '×';
       head.append(title, close);
 
-      const label = document.createElement('label');
+      const label = document.createElement('div');
       label.className = 'ys-label';
       label.textContent = 'Запрос';
+      const queryRow = document.createElement('div');
+      queryRow.className = 'ys-query-row';
       queryInput = document.createElement('input');
       queryInput.type = 'text';
       queryInput.className = 'ys-query';
@@ -69,7 +76,14 @@
       queryInput.autocomplete = 'off';
       queryInput.spellcheck = false;
       queryInput.setAttribute('aria-label', 'Поисковый запрос');
-      label.append(queryInput);
+      addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'ys-add';
+      addBtn.setAttribute('aria-label', 'Добавить запрос');
+      addBtn.textContent = '+';
+      queryRow.append(queryInput, addBtn);
+      queriesEl = document.createElement('div');
+      queriesEl.className = 'ys-queries';
 
       const actions = document.createElement('div');
       actions.className = 'ys-actions';
@@ -112,7 +126,7 @@
       logEl.className = 'ys-log';
       logEl.setAttribute('aria-live', 'polite');
 
-      root.append(head, label, actions, details, statusEl, logEl);
+      root.append(head, label, queryRow, queriesEl, actions, details, statusEl, logEl);
       document.documentElement.appendChild(root);
 
       for (const type of ['click', 'pointerdown', 'mousedown', 'mouseup', 'keydown', 'keyup']) {
@@ -121,12 +135,14 @@
       close.addEventListener('click', () => hide());
       startBtn.addEventListener('click', handleStart);
       stopBtn.addEventListener('click', () => onStop());
+      addBtn.addEventListener('click', () => commitDraft());
       queryInput.addEventListener('input', () => {
-        state.query = queryInput.value;
-        onQuery(state.query);
+        state.draft = queryInput.value;
       });
       queryInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') handleStart();
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        commitDraft();
       });
       for (const [key] of FIELDS) {
         inputs[key].addEventListener('input', () => {
@@ -137,16 +153,75 @@
       render();
     }
 
+    function commitDraft() {
+      const text = queryInput.value.trim().slice(0, 200);
+      if (!text) {
+        if (queryInput.value) {
+          queryInput.value = '';
+          state.draft = '';
+        }
+        return 'empty';
+      }
+      if (state.queries.some((item) => item.toLowerCase() === text.toLowerCase())) {
+        queryInput.value = '';
+        state.draft = '';
+        return 'duplicate';
+      }
+      if (state.queries.length >= 30) {
+        setStatus('Не больше 30 запросов');
+        return 'full';
+      }
+      queryInput.value = '';
+      state.draft = '';
+      state.queries = YS.engine.normalizeQueries([...state.queries, text]);
+      onQueries(getQueries());
+      renderQueries();
+      return 'added';
+    }
+
+    function removeQuery(text) {
+      const key = text.toLowerCase();
+      state.queries = state.queries.filter((item) => item.toLowerCase() !== key);
+      onQueries(getQueries());
+      renderQueries();
+    }
+
+    function renderQueries() {
+      if (!queriesEl) return;
+      const stamp = state.queries.join('\n');
+      if (stamp === queriesStamp && queriesEl.childElementCount === state.queries.length) return;
+      queriesStamp = stamp;
+      queriesEl.replaceChildren();
+      for (const text of state.queries) {
+        const chip = document.createElement('div');
+        chip.className = 'ys-chip';
+        const label = document.createElement('span');
+        label.className = 'ys-chip-text';
+        label.textContent = text;
+        label.title = text;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'ys-chip-remove';
+        remove.setAttribute('aria-label', 'Удалить запрос');
+        remove.textContent = '×';
+        remove.addEventListener('click', () => removeQuery(text));
+        chip.append(label, remove);
+        queriesEl.appendChild(chip);
+      }
+    }
+
     function handleStart() {
-      const query = queryInput.value.trim();
-      state.query = query;
-      queryInput.value = query;
-      if (!query) {
-        setStatus('Введите запрос');
+      const committed = commitDraft();
+      if (committed === 'full') {
         queryInput.focus();
         return;
       }
-      onStart(query, getSettings());
+      if (!state.queries.length) {
+        setStatus('Добавьте запрос');
+        queryInput.focus();
+        return;
+      }
+      onStart(getQueries(), getSettings());
     }
 
     function render() {
@@ -156,10 +231,10 @@
       statusEl.textContent = state.status;
       startBtn.disabled = state.running;
       stopBtn.disabled = !state.running;
-      queryInput.disabled = state.running;
-      if (document.activeElement !== queryInput && queryInput.value !== state.query) {
-        queryInput.value = state.query;
+      if (document.activeElement !== queryInput && queryInput.value !== state.draft) {
+        queryInput.value = state.draft;
       }
+      renderQueries();
       for (const [key] of FIELDS) {
         const input = inputs[key];
         const next = String(state.settings[key]);
@@ -204,9 +279,14 @@
       render();
     }
 
-    function setQuery(query) {
-      state.query = query || '';
+    function setQueries(queries) {
+      state.queries = YS.engine.normalizeQueries(queries);
+      queriesStamp = '';
       render();
+    }
+
+    function getQueries() {
+      return state.queries.slice();
     }
 
     function setSettings(settings) {
@@ -237,12 +317,13 @@
       setStatus,
       log,
       setRunning,
-      setQuery,
+      setQueries,
+      getQueries,
       setSettings,
       getSettings,
       onStart(callback) { onStart = callback; },
       onStop(callback) { onStop = callback; },
-      onQuery(callback) { onQuery = callback; },
+      onQueries(callback) { onQueries = callback; },
       onSettings(callback) { onSettings = callback; },
     };
   }

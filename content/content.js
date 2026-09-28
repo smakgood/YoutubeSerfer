@@ -17,10 +17,13 @@
     ui.destroy();
   }, { once: true });
 
-  ui.onStart((query, settings) => {
-    chrome.storage.local.set({ query, settings }).catch(() => {});
+  ui.onStart((queries, settings) => {
+    const saved = YS.engine.normalizeQueries(queries);
+    chrome.storage.local.set({ queries: saved, query: saved[0] || '', settings }).catch(() => {});
     YS.engine.start({
-      query,
+      query: '',
+      queries: saved,
+      getQueries: () => ui.getQueries(),
       getSettings: () => ui.getSettings(),
       ui,
       resume: false,
@@ -31,8 +34,10 @@
 
   ui.onStop(() => YS.engine.stop());
 
-  ui.onQuery((query) => {
-    chrome.storage.local.set({ query }).catch(() => {});
+  ui.onQueries((queries) => {
+    const saved = YS.engine.normalizeQueries(queries);
+    chrome.storage.local.set({ queries: saved, query: saved[0] || '' }).catch(() => {});
+    YS.session.set({ queries: saved }).catch(() => {});
   });
 
   ui.onSettings((settings) => {
@@ -55,6 +60,13 @@
 
   restore();
 
+  function storedQueries(session, local) {
+    if (Array.isArray(session.queries)) return session.queries;
+    if (Array.isArray(local.queries)) return local.queries;
+    const single = String(session.query || local.query || '').trim();
+    return single ? [single] : [];
+  }
+
   async function restore() {
     const [session, local] = await Promise.all([
       YS.session.get([
@@ -62,24 +74,27 @@
         'running',
         'owner',
         'query',
+        'queries',
         'settings',
         'seenIds',
         'searchUrl',
       ]),
-      chrome.storage.local.get(['query', 'settings']),
+      chrome.storage.local.get(['query', 'queries', 'settings']),
     ]);
 
     if (local.settings) ui.setSettings(local.settings);
     if (session.settings) ui.setSettings(session.settings);
-    ui.setQuery(session.query || local.query || '');
+    ui.setQueries(storedQueries(session, local));
 
     if (session.panelVisible || forceShow) ui.show();
 
     const seenIds = Array.isArray(session.seenIds) ? session.seenIds : [];
     const searchUrl = typeof session.searchUrl === 'string' ? session.searchUrl : '';
-    if (session.running && session.query && session.owner === YS.engine.tabToken && !YS.engine.isRunning()) {
+    if (session.running && ui.getQueries().length && session.owner === YS.engine.tabToken && !YS.engine.isRunning()) {
       YS.engine.start({
-        query: session.query,
+        query: session.query || '',
+        queries: ui.getQueries(),
+        getQueries: () => ui.getQueries(),
         getSettings: () => ui.getSettings(),
         ui,
         resume: true,
