@@ -78,6 +78,8 @@
         'settings',
         'seenIds',
         'searchUrl',
+        'actionsOnQuery',
+        'switchAfter',
       ]),
       chrome.storage.local.get(['query', 'queries', 'settings']),
     ]);
@@ -100,6 +102,8 @@
         resume: true,
         seenIds,
         searchUrl,
+        actionsOnQuery: session.actionsOnQuery,
+        switchAfter: session.switchAfter,
       });
     }
   }

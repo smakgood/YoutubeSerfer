@@ -8,6 +8,8 @@
     recommended: 60,
     watchMin: 20,
     watchMax: 180,
+    switchMin: 1,
+    switchMax: 1,
   });
 
   const tabToken = (() => {
@@ -48,6 +50,14 @@ function enqueueStorage(task) {
     watchMin = Math.min(600, Math.max(5, watchMin));
     watchMax = Math.min(900, Math.max(5, watchMax));
     if (watchMax < watchMin) watchMax = watchMin;
+    const count = (key) => {
+      const value = Number(source[key]);
+      if (!Number.isFinite(value)) return defaults[key];
+      return Math.min(999, Math.max(1, Math.round(value)));
+    };
+    let switchMin = count('switchMin');
+    let switchMax = count('switchMax');
+    if (switchMax < switchMin) switchMax = switchMin;
     return {
       like: percent('like'),
       subscribe: percent('subscribe'),
@@ -55,6 +65,8 @@ function enqueueStorage(task) {
       recommended: percent('recommended'),
       watchMin,
       watchMax,
+      switchMin,
+      switchMax,
     };
   }
 
@@ -130,6 +142,8 @@ function enqueueStorage(task) {
     let query = '';
     let searchUrl = typeof options.searchUrl === 'string' ? options.searchUrl : '';
     let emptyPasses = 0;
+    let actionsOnQuery = 0;
+    let switchAfter = 0;
 
     function readQueries() {
       return normalizeQueries(options.getQueries?.() ?? options.queries);
@@ -167,6 +181,8 @@ function enqueueStorage(task) {
           settings,
           seenIds: [...seen].slice(-300),
           searchUrl,
+          actionsOnQuery,
+          switchAfter,
         });
         await chrome.storage.local.set({ query, queries, settings });
       });
@@ -351,11 +367,36 @@ function enqueueStorage(task) {
       ui.log('Запрос: «' + query + '»');
     }
 
+    function rollSwitchAfter() {
+      const settings = settingsNow();
+      const span = settings.switchMax - settings.switchMin;
+      return settings.switchMin + Math.floor(Math.random() * (span + 1));
+    }
+
+    function resetSwitchQuota() {
+      actionsOnQuery = 0;
+      switchAfter = rollSwitchAfter();
+    }
+
+    function noteAction() {
+      actionsOnQuery += 1;
+      if (actionsOnQuery < switchAfter) return;
+      const before = query;
+      adoptQuery(pickQuery(query));
+      resetSwitchQuota();
+      if (before.toLowerCase() !== query.toLowerCase()) {
+        ui.log('Смена через ' + switchAfter + ' действий');
+      }
+    }
+
     async function cycle() {
       const list = readQueries();
       if (!list.length) stopForEmptyQueries();
       const currentKept = list.some((item) => item.toLowerCase() === query.toLowerCase());
-      if (!currentKept) adoptQuery(pickQuery(''));
+      if (!currentKept) {
+        adoptQuery(pickQuery(''));
+        resetSwitchQuota();
+      }
 
       ui.setStatus('Ищу видео');
       await ensureResults();
@@ -387,7 +428,8 @@ function enqueueStorage(task) {
       await followRecommendations();
       await returnToResults();
       await YS.dom.sleep(YS.dom.pauseMs(), signal);
-      adoptQuery(pickQuery(query));
+      noteAction();
+      await persist();
     }
 
     const savedQueries = readQueries();
@@ -400,10 +442,19 @@ function enqueueStorage(task) {
     query = matched || savedQueries[Math.floor(Math.random() * savedQueries.length)];
     if (preferred && !matched) searchUrl = '';
 
+    const restoredQuota = options.resume && Math.floor(Number(options.switchAfter) || 0) >= 1;
+    if (restoredQuota) {
+      actionsOnQuery = Math.max(0, Math.floor(Number(options.actionsOnQuery) || 0));
+      switchAfter = Math.floor(Number(options.switchAfter));
+    } else {
+      resetSwitchQuota();
+    }
+
     ui.setRunning(true);
     ui.setStatus(options.resume ? 'Продолжаю серфинг' : 'Запускаю');
     if (options.resume) ui.log('Сессия восстановлена');
     else ui.log('Старт: «' + query + '»');
+    if (!restoredQuota) ui.log('Смена через ' + switchAfter + ' действий');
     await persist();
 
     if (options.resume && YS.dom.currentVideoId()) {
@@ -411,7 +462,8 @@ function enqueueStorage(task) {
         await watchCurrent();
         await followRecommendations();
         await returnToResults();
-        adoptQuery(pickQuery(query));
+        noteAction();
+        await persist();
       } catch (error) {
         if (error.name === 'AbortError') throw error;
         ui.log(error.message || 'Не удалось продолжить просмотр');
