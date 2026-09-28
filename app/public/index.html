@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube Serfer</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="dot" id="dot" aria-hidden="true"></span>
+        <h1>YouTube Serfer</h1>
+      </div>
+      <p class="hint" id="connection">Нет подключения</p>
+    </header>
+
+    <section class="panel connect" aria-label="Подключение">
+      <h2>Подключение</h2>
+      <label>Путь к MCP<input id="mcpPath" type="text" spellcheck="false"></label>
+      <label>Адрес API<input id="api" type="text" spellcheck="false"></label>
+      <label>Токен<input id="token" type="password" spellcheck="false" autocomplete="off"></label>
+      <div class="row-actions">
+        <button id="connect" type="button">Подключить</button>
+        <button id="refresh" type="button" class="ghost">Обновить профили</button>
+      </div>
+      <p class="error" id="error" hidden></p>
+    </section>
+
+    <section class="panel accounts" aria-label="Аккаунты">
+      <div class="section-head">
+        <h2>Аккаунты</h2>
+        <div class="row-actions">
+          <button id="start" type="button">Запустить</button>
+          <button id="stopAll" type="button" class="ghost">Остановить все</button>
+        </div>
+      </div>
+      <p class="muted">Показаны только профили из папок, в имени которых есть youtube.</p>
+      <ul id="profiles"></ul>
+    </section>
+
+    <section class="panel surf" aria-label="Серфинг">
+      <h2>Запрос</h2>
+      <div class="query-row">
+        <input id="draft" type="text" maxlength="200" placeholder="подкаст" aria-label="Поисковый запрос" autocomplete="off" spellcheck="false">
+        <button id="add" type="button" aria-label="Добавить запрос">+</button>
+      </div>
+      <div id="queries" class="queries"></div>
+
+      <details class="settings" open>
+        <summary>Вероятности</summary>
+        <label class="line"><span>Лайк, %</span><input id="like" type="number" min="0" max="100" step="1"></label>
+        <label class="line"><span>Подписка, %</span><input id="subscribe" type="number" min="0" max="100" step="1"></label>
+        <label class="line"><span>Комментарий, %</span><input id="comment" type="number" min="0" max="100" step="1"></label>
+        <label class="line"><span>Рекомендации, %</span><input id="recommended" type="number" min="0" max="100" step="1"></label>
+        <div class="range">
+          <div class="range-title">Просмотр</div>
+          <div class="range-row">
+            <label>От<input id="watchMin" type="number" min="5" max="600" step="1" aria-label="Просмотр, от"></label>
+            <label>До<input id="watchMax" type="number" min="5" max="900" step="1" aria-label="Просмотр, до"></label>
+          </div>
+        </div>
+        <div class="range">
+          <div class="range-title">Действия</div>
+          <div class="range-row">
+            <label>От<input id="switchMin" type="number" min="1" max="999" step="1" aria-label="Действия, от"></label>
+            <label>До<input id="switchMax" type="number" min="1" max="999" step="1" aria-label="Действия, до"></label>
+          </div>
+        </div>
+      </details>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

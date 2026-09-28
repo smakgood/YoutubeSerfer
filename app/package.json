@@ -1,0 +1,13 @@
+{
+  "name": "youtube-serfer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "YouTube surfing across ShardX profiles via MCP",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.4.0"
+  }
+}
