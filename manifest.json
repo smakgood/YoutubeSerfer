@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Serfer",
+  "version": "1.0.0",
+  "description": "Случайный серфинг YouTube: поиск, просмотр, лайки, подписки и комментарии",
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Открыть YouTube Serfer"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": [
+        "content/store.js",
+        "content/dom.js",
+        "content/engine.js",
+        "content/ui.js",
+        "content/content.js"
+      ],
+      "css": ["content/ui.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
