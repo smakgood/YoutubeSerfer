@@ -2,16 +2,30 @@
 
 (function initUi(YS) {
   const DEFAULTS = YS.DEFAULT_SETTINGS;
-  const FIELDS = [
+  const PERCENTS = [
     ['like', 'Лайк, %', 0, 100],
     ['subscribe', 'Подписка, %', 0, 100],
     ['comment', 'Комментарий, %', 0, 100],
     ['recommended', 'Рекомендации, %', 0, 100],
-    ['watchMin', 'Просмотр от, сек', 5, 600],
-    ['watchMax', 'Просмотр до, сек', 5, 900],
-    ['switchMin', 'Действий от', 1, 999],
-    ['switchMax', 'Действий до', 1, 999],
   ];
+  const RANGES = [
+    ['Просмотр', [
+      ['watchMin', 'От', 5, 600],
+      ['watchMax', 'До', 5, 900],
+    ]],
+    ['Действия', [
+      ['switchMin', 'От', 1, 999],
+      ['switchMax', 'До', 1, 999],
+    ]],
+  ];
+
+  function settingKeys() {
+    const keys = PERCENTS.map(([key]) => key);
+    for (const [, fields] of RANGES) {
+      for (const [key] of fields) keys.push(key);
+    }
+    return keys;
+  }
 
   function create() {
     const state = {
@@ -37,6 +51,18 @@
     let statusEl = null;
     let logEl = null;
     const inputs = {};
+
+    function numberInput(key, ariaLabel, min, max) {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = '1';
+      input.value = String(state.settings[key]);
+      input.setAttribute('aria-label', ariaLabel);
+      inputs[key] = input;
+      return input;
+    }
 
     function mount() {
       queriesStamp = '';
@@ -104,21 +130,34 @@
       const summary = document.createElement('summary');
       summary.textContent = 'Вероятности';
       details.append(summary);
-      for (const [key, caption, min, max] of FIELDS) {
+      for (const [key, caption, min, max] of PERCENTS) {
         const row = document.createElement('label');
         row.className = 'ys-row';
         const captionEl = document.createElement('span');
         captionEl.textContent = caption;
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.min = String(min);
-        input.max = String(max);
-        input.step = '1';
-        input.value = String(state.settings[key]);
-        input.setAttribute('aria-label', caption);
-        inputs[key] = input;
+        const input = numberInput(key, caption, min, max);
         row.append(captionEl, input);
         details.append(row);
+      }
+      for (const [title, fields] of RANGES) {
+        const block = document.createElement('div');
+        block.className = 'ys-range';
+        const heading = document.createElement('div');
+        heading.className = 'ys-range-title';
+        heading.textContent = title;
+        const row = document.createElement('div');
+        row.className = 'ys-range-row';
+        for (const [key, caption, min, max] of fields) {
+          const field = document.createElement('label');
+          field.className = 'ys-range-field';
+          const captionEl = document.createElement('span');
+          captionEl.textContent = caption;
+          const input = numberInput(key, title + ', ' + caption.toLowerCase(), min, max);
+          field.append(captionEl, input);
+          row.append(field);
+        }
+        block.append(heading, row);
+        details.append(block);
       }
 
       statusEl = document.createElement('div');
@@ -146,7 +185,7 @@
         event.preventDefault();
         commitDraft();
       });
-      for (const [key] of FIELDS) {
+      for (const key of settingKeys()) {
         inputs[key].addEventListener('input', () => {
           state.settings[key] = inputs[key].value;
           onSettings(getSettings());
@@ -237,7 +276,7 @@
         queryInput.value = state.draft;
       }
       renderQueries();
-      for (const [key] of FIELDS) {
+      for (const key of settingKeys()) {
         const input = inputs[key];
         const next = String(state.settings[key]);
         if (document.activeElement !== input && input.value !== next) input.value = next;
@@ -298,7 +337,7 @@
 
     function getSettings() {
       const settings = {};
-      for (const [key] of FIELDS) {
+      for (const key of settingKeys()) {
         settings[key] = Number(inputs[key]?.value ?? state.settings[key]);
       }
       return settings;

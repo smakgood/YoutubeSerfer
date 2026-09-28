@@ -90,7 +90,8 @@
 }
 
 #ys-root .ys-query,
-#ys-root .ys-row input {
+#ys-root .ys-row input,
+#ys-root .ys-range-field input {
   display: block;
   width: 100%;
   height: 36px;
@@ -263,6 +264,44 @@
 
 #ys-root .ys-row input {
   width: 76px;
+  margin: 0;
+  text-align: right;
+}
+
+#ys-root .ys-range {
+  margin-top: 10px;
+}
+
+#ys-root .ys-range-title {
+  color: #d6d6d6;
+  font-size: 12px;
+}
+
+#ys-root .ys-range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+#ys-root .ys-range-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  color: #d6d6d6;
+  font-size: 12px;
+}
+
+#ys-root .ys-range-field span {
+  flex: 0 0 auto;
+}
+
+#ys-root .ys-range-field input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   margin: 0;
   text-align: right;
 }
