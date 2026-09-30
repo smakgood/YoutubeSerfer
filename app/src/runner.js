@@ -10,6 +10,7 @@ import {
   scrollMetricsExpression,
   scrollRelatedExpression,
   showPlayerExpression,
+  skipAdExpression,
 } from './page.js';
 
 const COMMENTS = [
@@ -24,6 +25,7 @@ const COMMENTS = [
 ];
 
 const SEARCH_SELECTOR = 'input[name="search_query"], input#search, input.ytSearchboxComponentInput';
+const STALL_LIMIT = 5;
 
 function rand(min, max) {
   return min + Math.random() * (max - min);
@@ -52,6 +54,12 @@ function sleep(ms, signal) {
 function abortError() {
   const error = new Error('Остановлено');
   error.name = 'AbortError';
+  return error;
+}
+
+function stallError(message) {
+  const error = new Error(message);
+  error.name = 'StallError';
   return error;
 }
 
@@ -91,6 +99,9 @@ function pickQuery(list, avoid) {
 
 export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   let controller = null;
+  let stopRequested = false;
+  let openVideoFails = 0;
+  let offlineReloads = 0;
   const state = {
     id,
     name,
@@ -104,7 +115,11 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   }
 
   function setStatus(status) {
-    state.status = status;
+    if (stopRequested && status !== 'Остановлено' && status !== 'Добавьте запрос') {
+      state.status = 'Останавливаюсь';
+    } else {
+      state.status = status;
+    }
     publish();
   }
 
@@ -227,22 +242,68 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   }
 
   async function openVideo(video) {
-    await clickAt(video);
-    const started = Date.now();
-    while (Date.now() - started < 15000) {
-      await sleep(500, controller.signal);
+    try {
+      await clickAt(video);
+      const started = Date.now();
+      while (Date.now() - started < 15000) {
+        await sleep(500, controller.signal);
+        await ensureOnline();
+        await skipAd();
+        const next = await pageState();
+        if (next.path === '/watch' && next.videoId === video.id) {
+          openVideoFails = 0;
+          return next;
+        }
+      }
       await ensureOnline();
-      const next = await pageState();
-      if (next.path === '/watch' && next.videoId === video.id) return next;
+      throw new Error('Не открыл видео');
+    } catch (error) {
+      if (error.name === 'AbortError' || error.name === 'StallError' || error.name === 'OfflineError') throw error;
+      openVideoFails += 1;
+      if (openVideoFails >= STALL_LIMIT) {
+        throw stallError(`Остановлено: ${STALL_LIMIT} неудачных попыток открыть видео подряд`);
+      }
+      throw error;
     }
-    await ensureOnline();
-    throw new Error('Не открыл видео');
+  }
+
+  async function rest(ms) {
+    const end = Date.now() + ms;
+    while (Date.now() < end && !stopRequested) {
+      await sleep(Math.min(end - Date.now(), 300), controller.signal);
+    }
+  }
+
+  async function skipAd() {
+    try {
+      const point = await evaluate(skipAdExpression());
+      if (!point?.x) return false;
+      await clickAt(point);
+      log('Пропуск рекламы');
+      await sleep(400, controller.signal);
+      await evaluate(playExpression());
+      return true;
+    } catch (error) {
+      if (error.name === 'AbortError' || error.name === 'StallError' || error.name === 'OfflineError') throw error;
+      return false;
+    }
+  }
+
+  async function pause(ms) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      await skipAd();
+      const left = end - Date.now();
+      if (left <= 0) break;
+      await sleep(Math.min(left, 1500), controller.signal);
+    }
   }
 
   async function findControl(kind) {
     const started = Date.now();
     while (Date.now() - started < 8000) {
       if (controller?.signal.aborted) throw abortError();
+      await skipAd();
       const found = await evaluate(controlExpression(kind));
       if (found?.x) return found;
       await sleep(500, controller.signal);
@@ -251,6 +312,7 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   }
 
   async function interact(settings) {
+    await skipAd();
     await evaluate(showPlayerExpression());
     if (chance(settings.like)) {
       const found = await findControl('like');
@@ -291,6 +353,7 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
 
   async function commentOnce() {
     for (let attempt = 0; attempt < 6; attempt += 1) {
+      await skipAd();
       const ready = await evaluate(commentStepExpression('ready'));
       if (ready?.ok) break;
       if (ready?.message && attempt === 5) return ready.message;
@@ -314,10 +377,12 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   }
 
   async function comment() {
-    const reloads = 3;
-    for (let index = 0; index <= reloads; index += 1) {
+    for (let reloads = 0; ; reloads += 1) {
       const result = await commentOnce();
-      if (!commentFieldMissing(result) || index === reloads) return result;
+      if (!commentFieldMissing(result)) return result;
+      if (reloads >= STALL_LIMIT) {
+        throw stallError(`Остановлено: ${STALL_LIMIT} неудачных попыток обновить страницу для комментария`);
+      }
       log('Поле комментария недоступно, обновляю страницу');
       setStatus('Обновляю страницу');
       await call('browser_reload', {});
@@ -325,18 +390,19 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
       const started = Date.now();
       let page = await pageState();
       while (page.path !== '/watch' && Date.now() - started < 15000) {
+        await skipAd();
         await sleep(500, controller.signal);
         page = await pageState();
       }
       await evaluate(playExpression());
     }
-    return 'Поле комментария недоступно';
   }
 
   async function watchCurrent(settings) {
     const startedWait = Date.now();
     let page = await pageState();
     while (page.path !== '/watch' && Date.now() - startedWait < 15000) {
+      await skipAd();
       await sleep(500, controller.signal);
       page = await pageState();
     }
@@ -346,35 +412,39 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
     setStatus('Смотрю видео');
     log(`Смотрю «${page.title || 'видео'}» · ~${Math.round(total / 1000)} с`);
     await evaluate(showPlayerExpression());
-    await sleep(rand(1000, 3500), controller.signal);
+    await pause(rand(1000, 3500));
     await evaluate(playExpression());
     await interact(settings);
     while (Date.now() - started < total) {
       await ensureOnline();
+      await skipAd();
       const left = total - (Date.now() - started);
       if (left <= 0) break;
-      await sleep(Math.min(left, 4000), controller.signal);
+      await sleep(Math.min(left, 1500), controller.signal);
     }
   }
 
   async function followRecommendations(settings, seen) {
     let hops = 0;
-    while (hops < 3 && !controller.signal.aborted) {
+    while (hops < 3 && !controller.signal.aborted && !stopRequested) {
       const live = normalizeSettings(getConfig().settings);
       if (!chance(live.recommended)) return;
       setStatus('Листаю рекомендации');
       await evaluate(scrollRelatedExpression());
       await sleep(rand(400, 900), controller.signal);
+      if (stopRequested) return;
       let video = await evaluate(pickVideoExpression(seen, 'related'));
       if (!video?.id) {
         await evaluate(scrollRelatedExpression());
         await sleep(rand(400, 900), controller.signal);
+        if (stopRequested) return;
         video = await evaluate(pickVideoExpression(seen, 'related'));
       }
       if (!video?.id) {
         log('Рекомендации не найдены');
         return;
       }
+      if (stopRequested) return;
       log(`Рекомендация: «${video.title || 'видео'}»`);
       seen.push(video.id);
       try {
@@ -408,7 +478,7 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
     log(`Смена через ${switchAfter} действий`);
     await call('browser_navigate', { url: 'https://www.youtube.com/' });
 
-    while (!signal.aborted) {
+    while (!signal.aborted && !stopRequested) {
       try {
         const config = getConfig();
         const list = normalizeQueries(config.queries);
@@ -418,6 +488,8 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
           return;
         }
         await ensureOnline();
+        if (stopRequested) break;
+        offlineReloads = 0;
         if (!list.some((item) => item.toLowerCase() === query.toLowerCase())) {
           query = pickQuery(list, '');
           searchUrl = '';
@@ -429,12 +501,15 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
 
         setStatus('Ищу видео');
         searchUrl = await ensureResults(query, searchUrl);
+        if (stopRequested) break;
         setStatus('Листаю выдачу');
         const scrolls = 1 + Math.floor(Math.random() * 4);
         for (let index = 0; index < scrolls; index += 1) {
+          if (stopRequested) break;
           await call('browser_scroll', { dy: Math.round(rand(300, 760)) });
           await sleep(rand(350, 1100), signal);
         }
+        if (stopRequested) break;
         const video = await evaluate(pickVideoExpression(seen, 'search'));
         if (!video?.id) {
           const before = await evaluate(scrollMetricsExpression());
@@ -455,6 +530,7 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
           log('Выдача просмотрена, начинаю заново');
           continue;
         }
+        if (stopRequested) break;
         emptyPasses = 0;
         seen.push(video.id);
         if (seen.length > 300) seen.splice(0, seen.length - 300);
@@ -462,10 +538,11 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
         log(`Открываю «${video.title || 'видео'}»`);
         await openVideo(video);
         await watchCurrent(settings);
-        await followRecommendations(settings, seen);
+        if (!stopRequested) await followRecommendations(settings, seen);
+        if (stopRequested) break;
         setStatus('Возвращаюсь к выдаче');
         await call('browser_navigate', { url: searchUrl });
-        await sleep(pauseMs(), signal);
+        await rest(pauseMs());
 
         actionsOnQuery += 1;
         if (actionsOnQuery >= switchAfter) {
@@ -482,15 +559,21 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
         }
       } catch (error) {
         if (error.name === 'AbortError' || signal.aborted) throw abortError();
+        if (error.name === 'StallError') throw error;
         if (error.name === 'OfflineError') {
+          offlineReloads += 1;
+          if (offlineReloads >= STALL_LIMIT) {
+            throw stallError(`Остановлено: ${STALL_LIMIT} неудачных попыток обновить страницу`);
+          }
           log('Нет подключения к интернету, обновляю страницу');
           setStatus('Обновляю страницу');
           await call('browser_reload', {});
-          await sleep(rand(5000, 8000), signal);
+          await rest(rand(5000, 8000));
+          if (stopRequested) break;
           continue;
         }
         log(error.message || 'Шаг пропущен');
-        await sleep(1500, signal);
+        await rest(1500);
       }
     }
   }
@@ -498,13 +581,20 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   async function start() {
     if (controller) return;
     controller = new AbortController();
+    stopRequested = false;
+    openVideoFails = 0;
+    offlineReloads = 0;
     state.running = true;
     setStatus('Запускаю');
     const active = controller;
     try {
       await loop();
     } catch (error) {
-      if (error.name !== 'AbortError') log(error.message || 'Сбой серфинга');
+      if (error.name === 'AbortError') {
+        // Stopped by the user.
+      } else {
+        log(error.message || 'Сбой серфинга');
+      }
     } finally {
       if (controller === active) controller = null;
       state.running = false;
@@ -519,7 +609,14 @@ export function createRunner({ id, name, mcp, getConfig, onUpdate }) {
   }
 
   function stop() {
-    controller?.abort();
+    if (!controller) return;
+    if (stopRequested) {
+      controller.abort();
+      return;
+    }
+    stopRequested = true;
+    setStatus('Останавливаюсь');
+    log('Остановка после текущего действия');
   }
 
   return { start, stop, snapshot, id };

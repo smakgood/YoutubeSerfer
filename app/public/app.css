@@ -118,7 +118,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   outline-offset: 2px;
 }
 
-#profiles { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#profiles { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 
 .account {
   padding: 10px;
@@ -127,6 +127,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   background: #121212;
 }
 
+.select-all,
 .account-head label {
   display: flex;
   align-items: center;
@@ -136,9 +137,32 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   font-size: 14px;
 }
 
+.select-all {
+  margin-top: 10px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.select-all:has(input:disabled) {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.select-all input,
 .account-head input { width: 16px; height: 16px; margin: 0; }
 .folder, .status { color: #b0b0b0; font-size: 12px; }
 .status { color: #3ea6ff; margin-left: auto; }
+.log-toggle {
+  flex: 0 0 36px;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+.log-toggle svg { display: block; margin: 0 auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .log-toggle svg { transition: transform 180ms cubic-bezier(0.2, 0, 0, 1); }
+}
+.log-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .log { margin-top: 8px; color: #cfcfcf; font-size: 12px; line-height: 1.45; }
 .log div { padding: 3px 0; border-top: 1px solid #333; }
 

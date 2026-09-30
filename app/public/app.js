@@ -1,5 +1,22 @@
 const fields = ['like', 'subscribe', 'comment', 'recommended', 'watchMin', 'watchMax', 'switchMin', 'switchMax'];
-const state = { queries: [], profiles: [], checked: new Set() };
+const state = { queries: [], profiles: [], checked: new Set(), logOpen: new Set() };
+
+function chevronIcon() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M4 6l4 4 4-4');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.5');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path);
+  return svg;
+}
 
 const errorEl = document.querySelector('#error');
 const profilesEl = document.querySelector('#profiles');
@@ -78,6 +95,7 @@ function renderProfiles() {
     empty.className = 'muted';
     empty.textContent = 'Нет профилей в папках youtube';
     profilesEl.appendChild(empty);
+    syncSelectAll();
     return;
   }
   for (const profile of state.profiles) {
@@ -92,6 +110,7 @@ function renderProfiles() {
     box.addEventListener('change', () => {
       if (box.checked) state.checked.add(profile.id);
       else state.checked.delete(profile.id);
+      syncSelectAll();
     });
     const name = document.createElement('span');
     name.textContent = profile.name;
@@ -107,20 +126,58 @@ function renderProfiles() {
     stop.textContent = 'Стоп';
     stop.disabled = !profile.running;
     stop.addEventListener('click', () => request('/api/stop', { ids: [profile.id] }).then(applyState).catch((error) => showError(error.message)));
-    head.append(label, folder, status, stop);
+    const lines = profile.log || [];
+    const logId = `log-${String(profile.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const open = state.logOpen.has(profile.id);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'log-toggle';
+    toggle.disabled = false;
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-controls', logId);
+    toggle.setAttribute('aria-label', open ? 'Скрыть лог' : 'Показать лог');
+    toggle.appendChild(chevronIcon());
+    toggle.addEventListener('click', () => {
+      if (state.logOpen.has(profile.id)) state.logOpen.delete(profile.id);
+      else state.logOpen.add(profile.id);
+      renderProfiles();
+    });
+    head.append(label, folder, status, toggle, stop);
     item.appendChild(head);
-    if (profile.log?.length) {
-      const log = document.createElement('div');
-      log.className = 'log';
-      for (const line of profile.log) {
+    const log = document.createElement('div');
+    log.className = 'log';
+    log.id = logId;
+    log.hidden = !open;
+    if (!lines.length) {
+      const row = document.createElement('div');
+      row.textContent = 'Пока нет записей';
+      log.appendChild(row);
+    } else {
+      for (const line of lines) {
         const row = document.createElement('div');
         row.textContent = line;
         log.appendChild(row);
       }
-      item.appendChild(log);
     }
+    item.appendChild(log);
     profilesEl.appendChild(item);
   }
+  syncSelectAll();
+}
+
+function syncSelectAll() {
+  const box = document.querySelector('#selectAll');
+  const ids = state.profiles.map((profile) => profile.id);
+  if (!ids.length) {
+    box.checked = false;
+    box.indeterminate = false;
+    box.disabled = true;
+    return;
+  }
+  box.disabled = false;
+  const selected = ids.filter((id) => state.checked.has(id)).length;
+  box.checked = selected === ids.length;
+  box.indeterminate = selected > 0 && selected < ids.length;
 }
 
 function applyState(data) {
@@ -173,6 +230,16 @@ document.querySelector('#connect').addEventListener('click', () => {
 
 document.querySelector('#refresh').addEventListener('click', () => {
   request('/api/profiles/refresh', {}).then(applyState).catch((error) => showError(error.message));
+});
+
+document.querySelector('#selectAll').addEventListener('change', () => {
+  const box = document.querySelector('#selectAll');
+  if (box.checked) {
+    for (const profile of state.profiles) state.checked.add(profile.id);
+  } else {
+    for (const profile of state.profiles) state.checked.delete(profile.id);
+  }
+  renderProfiles();
 });
 
 document.querySelector('#start').addEventListener('click', async () => {

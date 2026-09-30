@@ -278,6 +278,50 @@ export function closeLoginExpression() {
   `);
 }
 
+export function skipAdExpression() {
+  return script(`
+    function pointOf(node) {
+      if (!node) return null;
+      const button = node.closest ? (node.closest('button, [role="button"]') || node) : node;
+      if (button.disabled || button.getAttribute?.('aria-disabled') === 'true') return null;
+      if (button.hasAttribute?.('hidden') || button.hasAttribute?.('invisible')) return null;
+      const style = getComputedStyle(button);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return null;
+      const rect = button.getBoundingClientRect();
+      if (rect.width < 16 || rect.height < 12) return null;
+      if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) return null;
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    }
+    function search(root, depth) {
+      if (!root || depth > 6) return null;
+      const nodes = root.querySelectorAll?.([
+        'button.ytp-skip-ad-button',
+        '.ytp-skip-ad-button',
+        '.ytp-skip-ad-button__text',
+        'button.ytp-ad-skip-button',
+        '.ytp-ad-skip-button',
+        '.ytp-ad-skip-button-modern',
+        '.ytp-ad-skip-button-container button',
+        'button[id^="skip-button"]',
+      ].join(', ')) || [];
+      for (const node of nodes) {
+        const label = ((node.innerText || node.getAttribute?.('aria-label') || node.textContent || '') + '').toLowerCase();
+        if (label && !/skip|пропуст/.test(label)) continue;
+        const point = pointOf(node);
+        if (point) return point;
+      }
+      const nested = root.querySelectorAll ? root.querySelectorAll('*') : [];
+      for (const node of nested) {
+        if (!node.shadowRoot) continue;
+        const found = search(node.shadowRoot, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    return search(document, 0);
+  `);
+}
+
 export function playExpression() {
   return script(`
     const video = document.querySelector('video.html5-main-video, #movie_player video, video');
